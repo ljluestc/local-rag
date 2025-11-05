@@ -4,11 +4,16 @@ from utils.ollama import chat, context_chat
 
 
 def chatbox():
-    if prompt := st.chat_input("How can I help?"):
-        # Prevent submission if Ollama endpoint is not set
-        if not st.session_state["query_engine"]:
-            st.warning("Please confirm settings and upload files before proceeding.")
-            st.stop()
+    # Disable input entirely until the query engine is ready
+    engine_ready = bool(st.session_state.get("query_engine"))
+    prompt = st.chat_input("How can I help?", disabled=not engine_ready)
+
+    # If not ready, show a small hint and do nothing else
+    if not engine_ready:
+        st.caption("Configure Ollama in Settings and load an index in Admin to start chatting.")
+        return
+
+    if prompt:
 
         # Add the user input to messages state
         st.session_state["messages"].append({"role": "user", "content": prompt})

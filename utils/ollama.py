@@ -5,8 +5,7 @@ import streamlit as st
 
 import utils.logs as logs
 
-# This is not used but required by llama-index and must be imported FIRST
-os.environ["OPENAI_API_KEY"] = "sk-abc123"
+# Do not set OPENAI_API_KEY here; we use Ollama + HF embeddings only.
 
 from llama_index.llms.ollama import Ollama
 from llama_index.core import Settings
@@ -71,23 +70,47 @@ def get_models():
     """
     try:
         chat_client = create_client(st.session_state["ollama_endpoint"])
+        if chat_client is False:
+            st.session_state["ollama_models"] = []
+            return []
+
         data = chat_client.list()
-        models = []
-        for model in data["models"]:
-            models.append(model["name"])
+        models: list[str] = []
+
+        # Normalize various shapes returned by different client versions
+        items = None
+        if isinstance(data, dict) and "models" in data:
+            items = data["models"]
+        elif hasattr(data, "models"):
+            items = getattr(data, "models")
+        else:
+            items = data
+
+        if items is None:
+            items = []
+
+        for item in items:
+            name = None
+            if isinstance(item, dict):
+                name = item.get("name") or item.get("model")
+            else:
+                name = getattr(item, "name", None) or getattr(item, "model", None)
+                if name is None and isinstance(item, str):
+                    name = item
+            if name:
+                models.append(name)
 
         st.session_state["ollama_models"] = models
 
         if len(models) > 0:
             logs.log.info("Ollama models loaded successfully")
         else:
-            logs.log.warn(
-                "Ollama did not return any models. Make sure to download some!"
-            )
+            logs.log.warn("Ollama returned no models; enable manual model input in Settings.")
 
         return models
     except Exception as err:
         logs.log.error(f"Failed to retrieve Ollama model list: {err}")
+        st.session_state["ollama_models"] = []
         return []
 
 
@@ -99,7 +122,7 @@ def get_models():
 
 
 @st.cache_data(show_spinner=False)
-def create_ollama_llm(model: str, base_url: str, system_prompt: str = None, request_timeout: int = 60) -> Ollama:
+def create_ollama_llm(model: str, base_url: str, system_prompt: str = None, request_timeout: int | None = None) -> Ollama:
     """
     Create an instance of the Ollama language model.
 
@@ -112,6 +135,8 @@ def create_ollama_llm(model: str, base_url: str, system_prompt: str = None, requ
         - llm: An instance of the Ollama language model with the specified configuration.
     """
     try:
+        if request_timeout is None:
+            request_timeout = st.session_state.get("ollama_timeout", 120)
         # Settings.llm = Ollama(model=model, base_url=base_url, system_prompt=system_prompt, request_timeout=request_timeout)
         Settings.llm = Ollama(model=model, base_url=base_url, request_timeout=request_timeout)
         logs.log.info("Ollama LLM instance created successfully")
@@ -148,7 +173,12 @@ def chat(prompt: str):
         for chunk in stream:
             yield chunk.delta
     except Exception as err:
-        logs.log.error(f"Ollama chat stream error: {err}")
+        msg = str(err)
+        logs.log.error(f"Ollama chat stream error: {msg}")
+        if "timed out" in msg.lower():
+            yield "[Timeout] The model took too long to respond. Try increasing the Ollama timeout in Settings or reduce your prompt size."
+        else:
+            yield f"[Error] {msg}"
         return
 
 
@@ -192,5 +222,10 @@ def context_chat(prompt: str, query_engine: RetrieverQueryEngine):
             # print(str(text), end="", flush=True)
             yield str(text)
     except Exception as err:
-        logs.log.error(f"Ollama chat stream error: {err}")
+        msg = str(err)
+        logs.log.error(f"Ollama chat stream error: {msg}")
+        if "timed out" in msg.lower():
+            yield "[Timeout] The model took too long to respond. Try increasing the Ollama timeout in Settings or reduce your prompt size."
+        else:
+            yield f"[Error] {msg}"
         return

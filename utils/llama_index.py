@@ -5,15 +5,15 @@ import streamlit as st
 import utils.logs as logs
 
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-
-# This is not used but required by llama-index and must be set FIRST
-os.environ["OPENAI_API_KEY"] = "sk-abc123"
+ 
+ # Do not set OPENAI_API_KEY here; we use HuggingFace embeddings.
 
 from llama_index.core import (
     VectorStoreIndex,
     SimpleDirectoryReader,
     Settings,
 )
+from llama_index.core import StorageContext, load_index_from_storage
 
 
 
@@ -144,6 +144,42 @@ def create_index(_documents):
 
 ###################################
 #
+# Persist/Load Index
+#
+###################################
+
+
+def persist_index(index: VectorStoreIndex, persist_dir: str):
+    """
+    Persist the index to disk so it can be reused across app restarts.
+    """
+    try:
+        if persist_dir is None or persist_dir.strip() == "":
+            persist_dir = os.path.join(os.getcwd(), "storage")
+        os.makedirs(persist_dir, exist_ok=True)
+        index.storage_context.persist(persist_dir=persist_dir)
+        logs.log.info(f"Index persisted to {persist_dir}")
+    except Exception as err:
+        logs.log.error(f"Failed to persist index: {err}")
+        raise
+
+
+def load_persisted_index(persist_dir: str) -> VectorStoreIndex:
+    """
+    Load a previously persisted index from disk.
+    """
+    try:
+        storage_context = StorageContext.from_defaults(persist_dir=persist_dir)
+        index = load_index_from_storage(storage_context)
+        logs.log.info(f"Loaded persisted index from {persist_dir}")
+        return index
+    except Exception as err:
+        logs.log.error(f"Failed to load persisted index: {err}")
+        raise
+
+
+###################################
+#
 # Create Query Engine
 #
 ###################################
@@ -185,3 +221,21 @@ def create_query_engine(_documents):
     except Exception as e:
         logs.log.error(f"Error when creating Query Engine: {e}")
         raise Exception(f"Error when creating Query Engine: {e}")
+
+
+def create_query_engine_from_index(index: VectorStoreIndex):
+    """
+    Create a query engine from an existing index (e.g., one loaded from disk).
+    """
+    try:
+        query_engine = index.as_query_engine(
+            similarity_top_k=st.session_state["top_k"],
+            response_mode=st.session_state["chat_mode"],
+            streaming=True,
+        )
+        st.session_state["query_engine"] = query_engine
+        logs.log.info("Query Engine created from persisted index successfully")
+        return query_engine
+    except Exception as err:
+        logs.log.error(f"Error when creating Query Engine from index: {err}")
+        raise

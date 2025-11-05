@@ -61,11 +61,17 @@ def validate_github_repo(repo: str):
     Raises:
         Exception: If there is an error validating the repository.
     """
-    repo_endpoint = "https://github.com/" + repo + ".git"
-    resp = requests.head(repo_endpoint)
-    if resp.status_code() == 200:
-        return True
-    else:
+    try:
+        if repo is None or not isinstance(repo, str) or repo.strip() == "":
+            logs.log.error("GitHub repo is empty. Expected format: owner/repo")
+            return False
+
+        # Prefer GitHub API for reliable existence check (unauthenticated)
+        api_url = f"https://api.github.com/repos/{repo.strip()}"
+        resp = requests.get(api_url, timeout=10)
+        return resp.status_code == 200
+    except Exception as e:
+        logs.log.error(f"Error validating GitHub repo '{repo}': {e}")
         return False
 
 
@@ -89,20 +95,67 @@ def clone_github_repo(repo: str):
     Raises:
         Exception: If there is an error cloning the repository.
     """
-    repo_endpoint = "https://github.com/" + repo + ".git"
-    if repo_endpoint is not None:
-        save_dir = os.getcwd() + "/data"
-        clone_command = f"git clone -q {repo_endpoint} {save_dir}/{repo}"
-        try:
-            subprocess.run(clone_command, shell=True)
-            logs.log.info(f"Cloned {repo} repo")
-            return True
-        except Exception as e:
-            Exception(f"Error cloning {repo} GitHub repo: {e}")
-            return False
+    # Default state flags for UI to consume
+    st.session_state["github_clone_success"] = False
+    st.session_state["github_clone_error"] = None
 
-    else:
-        Exception(f"Failed to process GitHub repo {st.session_state['github_repo']}")
+    # Validate input
+    if repo is None or not isinstance(repo, str) or repo.strip() == "":
+        msg = "Please enter a repository in the format owner/repo."
+        logs.log.error(msg)
+        st.session_state["github_clone_error"] = msg
+        return False
+
+    repo = repo.strip()
+
+    # Verify the repo exists before cloning
+    if not validate_github_repo(repo):
+        msg = f"Repository '{repo}' not found or inaccessible. Check the name and your internet connection."
+        logs.log.error(msg)
+        st.session_state["github_clone_error"] = msg
+        return False
+
+    repo_endpoint = f"https://github.com/{repo}.git"
+
+    # Ensure destination directory exists
+    save_dir = os.path.join(os.getcwd(), "data")
+    try:
+        os.makedirs(save_dir, exist_ok=True)
+    except Exception as e:
+        msg = f"Unable to create data directory: {e}"
+        logs.log.error(msg)
+        st.session_state["github_clone_error"] = msg
+        return False
+
+    dest_dir = os.path.join(save_dir, repo)
+
+    # If already cloned, skip to avoid failures and re-use existing data
+    if os.path.isdir(dest_dir):
+        logs.log.info(f"Repository already present at {dest_dir}; skipping clone")
+        st.session_state["github_clone_success"] = True
+        return True
+
+    # Perform clone
+    try:
+        result = subprocess.run(
+            ["git", "clone", "-q", repo_endpoint, dest_dir],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        logs.log.info(f"Cloned {repo} repo")
+        st.session_state["github_clone_success"] = True
+        return True
+    except subprocess.CalledProcessError as e:
+        msg = e.stderr.strip() or e.stdout.strip() or str(e)
+        friendly = f"Failed to clone '{repo}': {msg}"
+        logs.log.error(friendly)
+        st.session_state["github_clone_error"] = friendly
+        return False
+    except Exception as e:
+        friendly = f"Unexpected error cloning '{repo}': {e}"
+        logs.log.error(friendly)
+        st.session_state["github_clone_error"] = friendly
         return False
 
 

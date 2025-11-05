@@ -15,7 +15,6 @@ def github_repo():
             key="github_repo",
         )
 
-        repo_processed = None
         repo_processed = st.button(
             "Process",
             on_click=func.clone_github_repo,
@@ -23,15 +22,20 @@ def github_repo():
             key="process_github",
         )
 
-        with st.spinner("Processing..."):
-            if repo_processed is True:
-                # Initiate the RAG pipeline, providing documents to be saved on disk if necessary
-                error = rag.rag_pipeline()
-                
-                if error is not None:
-                    st.exception(error)
+        if repo_processed is True:
+            with st.spinner("Processing..."):
+                # Only proceed if cloning succeeded
+                if st.session_state.get("github_clone_success") is True:
+                    # Initiate the RAG pipeline, providing documents to be saved on disk if necessary
+                    error = rag.rag_pipeline()
+
+                    if error is not None:
+                        st.exception(error)
+                    else:
+                        st.write("Your files are ready. Let's chat! 😎")
                 else:
-                    st.write("Your files are ready. Let's chat! 😎") # TODO: This should be a button.
+                    err_msg = st.session_state.get("github_clone_error") or "Failed to clone repository."
+                    st.error(err_msg)
 
     else:
         st.text_input(
