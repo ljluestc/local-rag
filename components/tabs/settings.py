@@ -121,10 +121,13 @@ def settings():
     st.subheader("Chat")
     chat_settings = st.container(border=True)
     with chat_settings:
+        # Get default from environment or use current session state
+        default_endpoint = os.getenv("OLLAMA_ENDPOINT") or st.session_state.get("ollama_endpoint", "http://localhost:11434")
         st.text_input(
             "Ollama Endpoint",
             key="ollama_endpoint",
-            placeholder="http://localhost:11434",
+            placeholder=default_endpoint,
+            value=default_endpoint if "ollama_endpoint" not in st.session_state else st.session_state["ollama_endpoint"],
             on_change=ollama.get_models,
         )
         st.number_input(

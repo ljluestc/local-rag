@@ -16,12 +16,15 @@ def set_initial_state():
         st.session_state["sidebar_state"] = "expanded"
 
     if "ollama_endpoint" not in st.session_state:
-        # Auto-detect Docker environment and use host.docker.internal if available
-        import os
-        if os.path.exists("/.dockerenv") or os.getenv("DOCKER_CONTAINER"):
-            st.session_state["ollama_endpoint"] = "http://host.docker.internal:11434"
-        else:
-            st.session_state["ollama_endpoint"] = "http://localhost:11434"
+        # Get from environment variable first, then auto-detect Docker environment
+        ollama_endpoint = os.getenv("OLLAMA_ENDPOINT")
+        if not ollama_endpoint:
+            # Auto-detect Docker environment and use host.docker.internal if available
+            if os.path.exists("/.dockerenv") or os.getenv("DOCKER_CONTAINER"):
+                ollama_endpoint = "http://host.docker.internal:11434"
+            else:
+                ollama_endpoint = "http://localhost:11434"
+        st.session_state["ollama_endpoint"] = ollama_endpoint
 
     if "ollama_timeout" not in st.session_state:
         st.session_state["ollama_timeout"] = 120

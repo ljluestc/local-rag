@@ -1,0 +1,96 @@
+name: "Tests"
+
+on:
+  push:
+    branches:
+      - "master"
+      - "main"
+  pull_request:
+    branches:
+      - "master"
+      - "main"
+
+env:
+  # Use environment variables from secrets or defaults
+  STREAMLIT_URL: ${{ secrets.STREAMLIT_URL || 'http://localhost:8501' }}
+  OLLAMA_ENDPOINT: ${{ secrets.OLLAMA_ENDPOINT || 'http://localhost:11434' }}
+  DOCKER_CONTAINER: "true"
+
+jobs:
+  test:
+    name: Run UI Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install pipenv
+          pipenv install --dev
+
+      - name: Install Playwright
+        run: |
+          pipenv run playwright install chromium
+          pipenv run playwright install-deps chromium
+
+      - name: Build Docker image
+        run: |
+          docker build -t local-rag-dev:latest .
+
+      - name: Start UI container
+        run: |
+          docker run -d \
+            --name local-rag-ui \
+            --add-host host.docker.internal:host-gateway \
+            -p 8501:8501 \
+            -e OLLAMA_ENDPOINT=${{ secrets.OLLAMA_ENDPOINT || 'http://host.docker.internal:11434' }} \
+            -e DOCKER_CONTAINER=true \
+            -v $(pwd)/storage:/home/appuser/storage \
+            -v $(pwd)/data:/home/appuser/data \
+            local-rag-dev:latest
+
+      - name: Wait for UI to be ready
+        run: |
+          timeout=60
+          elapsed=0
+          while [ $elapsed -lt $timeout ]; do
+            if curl -fsS http://localhost:8501/_stcore/health > /dev/null 2>&1; then
+              echo "UI is ready!"
+              exit 0
+            fi
+            echo "Waiting for UI... ($elapsed/$timeout seconds)"
+            sleep 5
+            elapsed=$((elapsed + 5))
+          done
+          echo "UI failed to start within $timeout seconds"
+          docker logs local-rag-ui
+          exit 1
+
+      - name: Run tests
+        env:
+          STREAMLIT_URL: ${{ secrets.STREAMLIT_URL || 'http://localhost:8501' }}
+          OLLAMA_ENDPOINT: ${{ secrets.OLLAMA_ENDPOINT || 'http://host.docker.internal:11434' }}
+        run: |
+          pipenv run pytest tests/test_ui.py -v
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results
+          path: |
+            test-results/
+            pytest-report.html
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop local-rag-ui || true
+          docker rm local-rag-ui || true
+

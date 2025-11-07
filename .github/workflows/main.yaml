@@ -116,6 +116,9 @@ jobs:
           tags: ${{ steps.docker-tags.outputs.tags }}
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache
+          build-args: |
+            OLLAMA_ENDPOINT=${{ secrets.OLLAMA_ENDPOINT || 'http://host.docker.internal:11434' }}
+            STREAMLIT_URL=${{ secrets.STREAMLIT_URL || 'http://localhost:8501' }}
 
       - name: Notify Slack
         uses: act10ns/slack@v2

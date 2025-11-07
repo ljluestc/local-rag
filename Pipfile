@@ -18,11 +18,18 @@ streamlit-tags = "*"
 streamlit-extras = "*"
 black = "*"
 torch = { version = "*", sys_platform = "!= 'darwin'" }
-colorama = { version = "*", sys_platform = "== 'win32'" }
+colorama = "*"
 ebooklib = "*"
 llama-index-core = "*"
+openai = "*"
+anthropic = "*"
+google-generativeai = "*"
+requests = "*"
 
 [dev-packages]
+pytest = "*"
+pytest-playwright = "*"
+playwright = "*"
 
 [requires]
 python_version = "3.10"

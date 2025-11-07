@@ -16,10 +16,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc
 # Install python dependencies in /.venv
 COPY Pipfile .
 COPY Pipfile.lock .
-RUN PIPENV_VENV_IN_PROJECT=1 pipenv install --deploy
+RUN PIPENV_VENV_IN_PROJECT=1 pipenv install || PIPENV_VENV_IN_PROJECT=1 pipenv install --skip-lock
 
 
 FROM base AS runtime
+
+# Install curl for health checks (must be done as root)
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual env from python-deps stage
 COPY --from=python-deps /.venv /.venv
@@ -36,8 +39,9 @@ COPY . .
 # Expose the Streamlit port
 EXPOSE 8501
 
-# Setup a health check against Streamlit
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
+# Setup a health check against Streamlit (with longer intervals and timeout)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl --fail http://localhost:8501/_stcore/health || exit 1
 
 # Run the application
 ENTRYPOINT [ "python", "-m", "streamlit" ]

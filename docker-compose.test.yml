@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - .:/app
+    environment:
+      - STREAMLIT_URL=http://ui:8501
+    depends_on:
+      - ui
+    command: pytest tests/test_ui.py -v
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./storage:/home/appuser/storage
+      - ./data:/home/appuser/data
+    environment:
+      - DOCKER_CONTAINER=true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+

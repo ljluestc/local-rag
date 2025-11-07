@@ -52,13 +52,35 @@ class OllamaProvider(LLMProvider):
     
     def stream_chat(self, prompt: str, **kwargs) -> Generator[str, None, None]:
         try:
+            # Check if model is configured
+            selected_model = st.session_state.get("selected_model")
+            if not selected_model or selected_model == "None":
+                yield "[Error] No Ollama model configured. Please go to Settings → Ollama → Model and select a model."
+                return
+            
+            # Create LLM instance - use environment variable or session state
+            ollama_endpoint = os.getenv("OLLAMA_ENDPOINT") or st.session_state.get("ollama_endpoint", "http://localhost:11434")
             llm = self.create_llm(
-                st.session_state["selected_model"],
-                st.session_state["ollama_endpoint"],
+                selected_model,
+                ollama_endpoint,
             )
+            
+            # Check if LLM creation failed
+            if llm is None:
+                yield "[Error] Failed to create Ollama LLM. Please check your Ollama endpoint and model configuration."
+                return
+            
+            # Stream response
             stream = llm.stream_complete(prompt)
             for chunk in stream:
                 yield chunk.delta
+        except AttributeError as err:
+            if "'NoneType' object has no attribute" in str(err):
+                logs.log.error(f"Ollama chat error: Model not configured - {err}")
+                yield "[Error] No Ollama model configured. Please go to Settings → Ollama → Model and select a model."
+            else:
+                logs.log.error(f"Ollama chat error: {err}")
+                yield f"[Error] {str(err)}"
         except Exception as err:
             logs.log.error(f"Ollama chat error: {err}")
             yield f"[Error] {str(err)}"
