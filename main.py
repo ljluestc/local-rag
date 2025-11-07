@@ -64,7 +64,54 @@ if st.session_state.get("query_engine") is None:
             index = llama_index.load_persisted_index(persist_dir)
             llama_index.create_query_engine_from_index(index)
         else:
-            st.info("No persisted index found. Please open the Admin page to ingest documents.")
+            # Attempt a one-time automatic index build from the default data/ directory
+            try:
+                if not st.session_state.get("auto_ingest_attempted"):
+                    data_dir = os.path.join(os.getcwd(), "data")
+                    has_files = False
+                    try:
+                        for root, _, files in os.walk(data_dir):
+                            if any(not f.startswith(".") for f in files):
+                                has_files = True
+                                break
+                    except Exception:
+                        has_files = False
+
+                    if has_files:
+                        # Ensure a local embedding model is set before building the index (avoid OpenAI defaults)
+                        embedding_model = st.session_state.get("embedding_model")
+                        if embedding_model is None or embedding_model == "Default (bge-large-en-v1.5)":
+                            hf_embedding_model = "BAAI/bge-large-en-v1.5"
+                        elif embedding_model == "Large (Salesforce/SFR-Embedding-Mistral)":
+                            hf_embedding_model = "Salesforce/SFR-Embedding-Mistral"
+                        else:
+                            hf_embedding_model = st.session_state.get("other_embedding_model") or "BAAI/bge-large-en-v1.5"
+
+                        try:
+                            llama_index.setup_embedding_model(hf_embedding_model)
+                        except Exception:
+                            pass
+
+                        # Build and persist a new index from data/
+                        docs = llama_index.load_documents(data_dir)
+                        index = llama_index.create_index(docs)
+                        llama_index.persist_index(index, persist_dir)
+
+                        # Create a query engine if possible; otherwise the Admin page can still be used to chat
+                        try:
+                            llama_index.create_query_engine_from_index(index)
+                        except Exception:
+                            pass
+
+                        st.success("Built and persisted a new index from the data/ directory.")
+                    else:
+                        st.info("No persisted index found. Please open the Admin page to ingest documents.")
+
+                    st.session_state["auto_ingest_attempted"] = True
+                else:
+                    st.info("No persisted index found. Please open the Admin page to ingest documents.")
+            except Exception:
+                st.info("No persisted index found. Please open the Admin page to ingest documents.")
     except Exception:
         st.info("No persisted index found. Please open the Admin page to ingest documents.")
 
