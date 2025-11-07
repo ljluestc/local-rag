@@ -140,3 +140,47 @@ def set_initial_state():
         st.session_state["openai_api_key"] = api_key
         if api_key:
             os.environ["OPENAI_API_KEY"] = api_key
+
+    #####################
+    # Multi-Provider     #
+    #####################
+
+    if "llm_provider" not in st.session_state:
+        st.session_state["llm_provider"] = "ollama"  # Default to Ollama
+
+    if "anthropic_api_key" not in st.session_state:
+        st.session_state["anthropic_api_key"] = os.getenv("ANTHROPIC_API_KEY", "")
+
+    if "gemini_api_key" not in st.session_state:
+        st.session_state["gemini_api_key"] = os.getenv("GOOGLE_API_KEY", "")
+
+    if "grok_api_key" not in st.session_state:
+        st.session_state["grok_api_key"] = os.getenv("GROK_API_KEY", "")
+
+    if "mcp_endpoint" not in st.session_state:
+        st.session_state["mcp_endpoint"] = os.getenv("MCP_ENDPOINT", "")
+
+    if "openai_model" not in st.session_state:
+        st.session_state["openai_model"] = "gpt-3.5-turbo"
+
+    if "claude_model" not in st.session_state:
+        st.session_state["claude_model"] = "claude-3-5-sonnet-20241022"
+
+    if "gemini_model" not in st.session_state:
+        st.session_state["gemini_model"] = "gemini-pro"
+
+    if "grok_model" not in st.session_state:
+        st.session_state["grok_model"] = "grok-beta"
+
+    if "mcp_model" not in st.session_state:
+        st.session_state["mcp_model"] = "mcp-model"
+
+    #####################
+    # Chat Sessions     #
+    #####################
+
+    if "chat_sessions" not in st.session_state:
+        st.session_state["chat_sessions"] = {}
+
+    if "current_chat_id" not in st.session_state:
+        st.session_state["current_chat_id"] = None

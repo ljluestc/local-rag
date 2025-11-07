@@ -25,6 +25,99 @@ def settings():
         st.session_state["openai_api_key"] = ""
         os.environ.pop("OPENAI_API_KEY", None)
 
+    st.subheader("LLM Provider")
+    provider_settings = st.container(border=True)
+    with provider_settings:
+        provider = st.selectbox(
+            "Select Provider",
+            ["ollama", "openai", "claude", "gemini", "grok", "mcp"],
+            key="llm_provider",
+            help="Choose which LLM provider to use for chat"
+        )
+        
+        if provider == "openai":
+            show_key = st.toggle("Show OpenAI Key", key="show_openai_key", value=False)
+            input_type = "password" if not show_key else "default"
+            st.text_input(
+                "OpenAI API Key",
+                key="openai_api_key",
+                placeholder="sk-...",
+                type=input_type,
+            )
+            st.selectbox(
+                "OpenAI Model",
+                ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo", "gpt-4o"],
+                key="openai_model",
+            )
+            if st.session_state.get("openai_api_key"):
+                os.environ["OPENAI_API_KEY"] = st.session_state["openai_api_key"]
+        
+        elif provider == "claude":
+            show_key = st.toggle("Show Claude Key", key="show_claude_key", value=False)
+            input_type = "password" if not show_key else "default"
+            st.text_input(
+                "Anthropic API Key",
+                key="anthropic_api_key",
+                placeholder="sk-ant-...",
+                type=input_type,
+            )
+            st.selectbox(
+                "Claude Model",
+                ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"],
+                key="claude_model",
+            )
+            if st.session_state.get("anthropic_api_key"):
+                os.environ["ANTHROPIC_API_KEY"] = st.session_state["anthropic_api_key"]
+        
+        elif provider == "gemini":
+            show_key = st.toggle("Show Gemini Key", key="show_gemini_key", value=False)
+            input_type = "password" if not show_key else "default"
+            st.text_input(
+                "Google API Key",
+                key="gemini_api_key",
+                placeholder="AIza...",
+                type=input_type,
+            )
+            st.selectbox(
+                "Gemini Model",
+                ["gemini-pro", "gemini-pro-vision", "gemini-1.5-pro"],
+                key="gemini_model",
+            )
+            if st.session_state.get("gemini_api_key"):
+                os.environ["GOOGLE_API_KEY"] = st.session_state["gemini_api_key"]
+        
+        elif provider == "grok":
+            show_key = st.toggle("Show Grok Key", key="show_grok_key", value=False)
+            input_type = "password" if not show_key else "default"
+            st.text_input(
+                "Grok API Key",
+                key="grok_api_key",
+                placeholder="xai-...",
+                type=input_type,
+            )
+            st.selectbox(
+                "Grok Model",
+                ["grok-beta", "grok-2"],
+                key="grok_model",
+            )
+            if st.session_state.get("grok_api_key"):
+                os.environ["GROK_API_KEY"] = st.session_state["grok_api_key"]
+        
+        elif provider == "mcp":
+            st.text_input(
+                "MCP Endpoint",
+                key="mcp_endpoint",
+                placeholder="http://localhost:8000/v1/chat/completions",
+                help="MCP (Model Context Protocol) endpoint URL"
+            )
+            st.text_input(
+                "MCP Model",
+                key="mcp_model",
+                placeholder="mcp-model",
+            )
+            if st.session_state.get("mcp_endpoint"):
+                os.environ["MCP_ENDPOINT"] = st.session_state["mcp_endpoint"]
+
     st.subheader("Chat")
     chat_settings = st.container(border=True)
     with chat_settings:
@@ -62,24 +155,6 @@ def settings():
             "Refresh",
             on_click=ollama.get_models,
         )
-        show_key = st.toggle("Show OpenAI Key", key="show_openai_key", value=False)
-        input_type = "password" if not show_key else "default"
-        st.text_input(
-            "OpenAI API Key (optional)",
-            key="openai_api_key",
-            placeholder="sk-...",
-            type=input_type,
-            help="Only needed if a persisted index or component requires OpenAI. Not used for Ollama."
-        )
-        # Apply/remove env var based on current value
-        if st.session_state.get("openai_api_key"):
-            os.environ["OPENAI_API_KEY"] = st.session_state["openai_api_key"]
-        else:
-            os.environ.pop("OPENAI_API_KEY", None)
-        if st.button("Clear OpenAI Key"):
-            # Defer clearing until next rerun to avoid modifying after widget instantiation
-            st.session_state["_clear_openai_key_requested"] = True
-            st.rerun()
         reset_chat = st.button(
             "Reset Chat",
             help="Clear chat history and restart the conversation",
