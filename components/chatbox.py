@@ -27,17 +27,82 @@ def chatbox():
         with st.chat_message("assistant"):
             try:
                 response_text = ""
+                source_nodes = []
+                model_name = st.session_state.get("selected_model", "Unknown")
+                using_openai = bool(st.session_state.get("openai_api_key"))
+                
                 if query_engine:
                     # Use context chat with document index
-                    with st.spinner("Processing..."):
+                    model_indicator = "🔵 **Ollama**" if not using_openai else "🟢 **OpenAI**"
+                    st.caption(f"{model_indicator} | Model: {model_name} | 📚 Using indexed documents")
+                    
+                    with st.spinner("🔍 Searching documents..."):
                         response_stream = context_chat(
                             prompt=prompt, query_engine=query_engine
                         )
-                        # st.write_stream returns the full response as string
-                        response_text = st.write_stream(response_stream)
+                        # Stream response and collect source nodes
+                        full_response = []
+                        response_container = st.empty()
+                        
+                        for chunk in response_stream:
+                            if isinstance(chunk, tuple) and len(chunk) == 2 and chunk[0] == "__SOURCES__":
+                                # This is the source nodes marker
+                                source_nodes = chunk[1] if chunk[1] else []
+                            else:
+                                chunk_str = str(chunk)
+                                full_response.append(chunk_str)
+                                # Update display as we stream
+                                response_container.markdown("".join(full_response))
+                        
+                        response_text = "".join(full_response)
+                        
+                        # Display source citations if available
+                        if source_nodes:
+                            with st.expander(f"📄 **Sources** ({len(source_nodes)} document(s) referenced)", expanded=True):
+                                for i, node in enumerate(source_nodes[:5], 1):  # Show top 5 sources
+                                    try:
+                                        # Get metadata
+                                        metadata = {}
+                                        if hasattr(node, 'metadata'):
+                                            metadata = node.metadata
+                                        elif hasattr(node, 'node') and hasattr(node.node, 'metadata'):
+                                            metadata = node.node.metadata
+                                        
+                                        # Extract file information
+                                        file_path = metadata.get('file_path', metadata.get('file_name', 'Unknown'))
+                                        page_label = metadata.get('page_label', metadata.get('page', ''))
+                                        
+                                        # Get score if available
+                                        score = None
+                                        if hasattr(node, 'score'):
+                                            score = node.score
+                                        
+                                        # Format source info
+                                        source_info = f"**{i}.** `{file_path}`"
+                                        if page_label:
+                                            source_info += f" (page {page_label})"
+                                        if score is not None:
+                                            source_info += f" | Relevance: {score:.2f}"
+                                        st.caption(source_info)
+                                        
+                                        # Show snippet
+                                        text_content = ""
+                                        if hasattr(node, 'text'):
+                                            text_content = node.text
+                                        elif hasattr(node, 'node') and hasattr(node.node, 'text'):
+                                            text_content = node.node.text
+                                        elif hasattr(node, 'get_content'):
+                                            text_content = node.get_content()
+                                        
+                                        if text_content:
+                                            snippet = text_content[:300] + "..." if len(text_content) > 300 else text_content
+                                            st.text(snippet)
+                                    except Exception as e:
+                                        st.caption(f"**{i}.** Source {i} (error displaying: {str(e)})")
                 elif selected_model:
                     # Use basic chat without context
-                    with st.spinner("Processing..."):
+                    st.caption(f"🔵 **Ollama** | Model: {model_name} | ⚠️ No documents indexed")
+                    with st.spinner("💬 Generating response..."):
                         response_stream = chat(prompt=prompt)
                         # st.write_stream returns the full response as string
                         response_text = st.write_stream(response_stream)

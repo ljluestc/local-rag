@@ -198,7 +198,7 @@ def context_chat(prompt: str, query_engine: RetrieverQueryEngine):
         - query_engine (RetrieverQueryEngine): The Llama-Index query engine to use for retrieving answers.
 
     Yields:
-        - str: Successive chunks of conversation from the Llama-Index model with context.
+        - tuple: (text_chunk, source_nodes) - Successive chunks of conversation and source nodes.
 
     Raises:
         - Exception: If there is an error retrieving answers from the Llama-Index model.
@@ -217,10 +217,26 @@ def context_chat(prompt: str, query_engine: RetrieverQueryEngine):
     """
 
     try:
-        stream = query_engine.query(prompt)
-        for text in stream.response_gen:
-            # print(str(text), end="", flush=True)
+        response = query_engine.query(prompt)
+        source_nodes = []
+        
+        # Extract source nodes if available (after query completes)
+        if hasattr(response, 'source_nodes') and response.source_nodes:
+            source_nodes = response.source_nodes
+        elif hasattr(response, 'get_formatted_sources'):
+            try:
+                sources = response.get_formatted_sources()
+                if sources:
+                    source_nodes = sources
+            except:
+                pass
+        
+        # Stream the response text
+        for text in response.response_gen:
             yield str(text)
+        
+        # Yield source nodes as a special marker after streaming completes
+        yield ("__SOURCES__", source_nodes)
     except Exception as err:
         msg = str(err)
         logs.log.error(f"Ollama chat stream error: {msg}")
