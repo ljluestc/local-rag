@@ -67,7 +67,8 @@ class OllamaProvider(LLMProvider):
             
             # Check if LLM creation failed
             if llm is None:
-                yield "[Error] Failed to create Ollama LLM. Please check your Ollama endpoint and model configuration."
+                ollama_endpoint = os.getenv("OLLAMA_ENDPOINT") or st.session_state.get("ollama_endpoint", "http://localhost:11434")
+                yield f"[Connection Error] Failed to connect to Ollama at {ollama_endpoint}. Please check:\n1. Ollama is installed and running (https://ollama.com/download)\n2. The endpoint is correct in Settings → Ollama → Endpoint\n3. If running in Docker, ensure Ollama is accessible from the container\n4. Try: `curl {ollama_endpoint}/api/tags` to test the connection"
                 return
             
             # Stream response
@@ -82,8 +83,19 @@ class OllamaProvider(LLMProvider):
                 logs.log.error(f"Ollama chat error: {err}")
                 yield f"[Error] {str(err)}"
         except Exception as err:
-            logs.log.error(f"Ollama chat error: {err}")
-            yield f"[Error] {str(err)}"
+            msg = str(err)
+            logs.log.error(f"Ollama chat error: {msg}")
+            
+            # Provide more helpful error messages
+            if "timed out" in msg.lower() or "timeout" in msg.lower():
+                yield "[Timeout] The model took too long to respond. Try increasing the Ollama timeout in Settings or reduce your prompt size."
+            elif "connection" in msg.lower() or "refused" in msg.lower() or "unreachable" in msg.lower() or "failed to connect" in msg.lower():
+                ollama_endpoint = os.getenv("OLLAMA_ENDPOINT") or st.session_state.get("ollama_endpoint", "http://localhost:11434")
+                yield f"[Connection Error] Failed to connect to Ollama at {ollama_endpoint}. Please check:\n1. Ollama is installed and running (https://ollama.com/download)\n2. The endpoint is correct in Settings → Ollama → Endpoint\n3. If running in Docker, ensure Ollama is accessible from the container"
+            elif "model" in msg.lower() and ("not found" in msg.lower() or "does not exist" in msg.lower()):
+                yield f"[Model Error] Model '{selected_model}' not found. Please:\n1. Install the model: `ollama pull {selected_model}`\n2. Or select a different model in Settings → Ollama → Model"
+            else:
+                yield f"[Error] {msg}"
     
     def get_model_name(self) -> str:
         return st.session_state.get("selected_model", "Unknown")

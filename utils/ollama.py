@@ -104,6 +104,19 @@ def get_models():
 
         if len(models) > 0:
             logs.log.info("Ollama models loaded successfully")
+            # Auto-select a model if none is currently selected
+            current_model = st.session_state.get("selected_model")
+            if not current_model or current_model == "None" or current_model is None:
+                # Prefer llama3:8b, then llama2:7b, then first available
+                if "llama3:8b" in models:
+                    st.session_state["selected_model"] = "llama3:8b"
+                    logs.log.info("Auto-selected default model: llama3:8b")
+                elif "llama2:7b" in models:
+                    st.session_state["selected_model"] = "llama2:7b"
+                    logs.log.info("Auto-selected default model: llama2:7b")
+                else:
+                    st.session_state["selected_model"] = models[0]
+                    logs.log.info(f"Auto-selected first available model: {models[0]}")
         else:
             logs.log.warn("Ollama returned no models; enable manual model input in Settings.")
 
@@ -137,12 +150,33 @@ def create_ollama_llm(model: str, base_url: str, system_prompt: str = None, requ
     try:
         if request_timeout is None:
             request_timeout = st.session_state.get("ollama_timeout", 120)
+        
+        # Test connection first
+        try:
+            test_client = create_client(base_url)
+            if test_client is False:
+                logs.log.error(f"Failed to connect to Ollama at {base_url}")
+                return None
+            
+            # Try to list models to verify connection
+            try:
+                test_client.list()
+            except Exception as list_err:
+                logs.log.warning(f"Could not list models (connection may still work): {list_err}")
+        except Exception as conn_err:
+            logs.log.error(f"Connection test failed: {conn_err}")
+            return None
+        
         # Settings.llm = Ollama(model=model, base_url=base_url, system_prompt=system_prompt, request_timeout=request_timeout)
         Settings.llm = Ollama(model=model, base_url=base_url, request_timeout=request_timeout)
-        logs.log.info("Ollama LLM instance created successfully")
+        logs.log.info(f"Ollama LLM instance created successfully with model {model} at {base_url}")
         return Settings.llm
     except Exception as e:
-        logs.log.error(f"Error creating Ollama language model: {e}")
+        error_msg = str(e)
+        logs.log.error(f"Error creating Ollama language model: {error_msg}")
+        # Check for common connection errors
+        if "connection" in error_msg.lower() or "refused" in error_msg.lower() or "unreachable" in error_msg.lower():
+            logs.log.error(f"Ollama connection error - check that Ollama is running at {base_url}")
         return None
 
 
@@ -180,7 +214,8 @@ def chat(prompt: str):
         
         # Check if LLM creation failed
         if llm is None:
-            yield "[Error] Failed to create Ollama LLM. Please check your Ollama endpoint and model configuration."
+            ollama_endpoint = os.getenv("OLLAMA_ENDPOINT") or st.session_state.get("ollama_endpoint", "http://localhost:11434")
+            yield f"[Connection Error] Failed to connect to Ollama at {ollama_endpoint}. Please check:\n1. Ollama is installed and running (https://ollama.com/download)\n2. The endpoint is correct in Settings → Ollama → Endpoint\n3. If running in Docker, ensure Ollama is accessible from the container\n4. Try: `curl {ollama_endpoint}/api/tags` to test the connection"
             return
         
         # Stream response
@@ -190,8 +225,15 @@ def chat(prompt: str):
     except Exception as err:
         msg = str(err)
         logs.log.error(f"Ollama chat stream error: {msg}")
-        if "timed out" in msg.lower():
+        
+        # Provide more helpful error messages
+        if "timed out" in msg.lower() or "timeout" in msg.lower():
             yield "[Timeout] The model took too long to respond. Try increasing the Ollama timeout in Settings or reduce your prompt size."
+        elif "connection" in msg.lower() or "refused" in msg.lower() or "unreachable" in msg.lower() or "failed to connect" in msg.lower():
+            ollama_endpoint = os.getenv("OLLAMA_ENDPOINT") or st.session_state.get("ollama_endpoint", "http://localhost:11434")
+            yield f"[Connection Error] Failed to connect to Ollama at {ollama_endpoint}. Please check:\n1. Ollama is installed and running (https://ollama.com/download)\n2. The endpoint is correct in Settings → Ollama → Endpoint\n3. If running in Docker, ensure Ollama is accessible from the container"
+        elif "model" in msg.lower() and ("not found" in msg.lower() or "does not exist" in msg.lower()):
+            yield f"[Model Error] Model '{selected_model}' not found. Please:\n1. Install the model: `ollama pull {selected_model}`\n2. Or select a different model in Settings → Ollama → Model"
         else:
             yield f"[Error] {msg}"
         return

@@ -1,6 +1,8 @@
 import streamlit as st
+import os
 
 from utils.ollama import chat, context_chat
+import utils.logs as logs
 from utils.chat_sessions import (
     init_chat_sessions,
     get_current_chat_session,
@@ -60,9 +62,25 @@ def chatbox():
     provider_name = st.session_state.get("llm_provider", "ollama")
     provider = get_provider(provider_name)
     
+    # Check if model is configured (for Ollama)
+    model_configured = True
+    if provider_name == "ollama":
+        selected_model = st.session_state.get("selected_model")
+        # Allow manual model names even if not in the models list
+        if not selected_model or selected_model == "None" or selected_model is None:
+            # Try to use default manual model
+            default_manual_model = os.getenv("OLLAMA_DEFAULT_MODEL", "llama3:8b")
+            st.session_state["selected_model"] = default_manual_model
+            selected_model = default_manual_model
+            logs.log.info(f"Using default manual model: {default_manual_model}")
+            model_configured = True  # Manual model is valid
+        else:
+            # Model is set (either from list or manual)
+            model_configured = True
+    
     # Show helpful message if no index or model
     if not query_engine:
-        if not provider:
+        if not provider or not model_configured:
             st.info("💡 **Tip**: Configure a model provider in Settings to enable chat. Upload files in Admin to enable document-based Q&A.")
         else:
             st.info("💡 **Tip**: Upload files in Admin to enable document-based Q&A. You can still chat without documents.")
@@ -87,29 +105,30 @@ def chatbox():
                 source_nodes = []
                 
                 if query_engine and provider_name == "ollama":
-                    # Use context chat with document index (Ollama only for now)
-                    model_name = provider.get_model_name() if provider else "Unknown"
-                    st.caption(f"🔵 **{provider_name.upper()}** | Model: {model_name} | 📚 Using indexed documents")
-                    
-                    with st.spinner("🔍 Searching documents..."):
-                        response_stream = context_chat(
-                            prompt=prompt, query_engine=query_engine
-                        )
-                        # Stream response and collect source nodes
-                        full_response = []
-                        response_container = st.empty()
+                    if model_configured:
+                        # Use context chat with document index (Ollama only for now)
+                        model_name = provider.get_model_name() if provider else "Unknown"
+                        st.caption(f"🔵 **{provider_name.upper()}** | Model: {model_name} | 📚 Using indexed documents")
                         
-                        for chunk in response_stream:
-                            if isinstance(chunk, tuple) and len(chunk) == 2 and chunk[0] == "__SOURCES__":
-                                # This is the source nodes marker
-                                source_nodes = chunk[1] if chunk[1] else []
-                            else:
-                                chunk_str = str(chunk)
-                                full_response.append(chunk_str)
-                                # Update display as we stream
-                                response_container.markdown("".join(full_response))
-                        
-                        response_text = "".join(full_response)
+                        with st.spinner("🔍 Searching documents..."):
+                            response_stream = context_chat(
+                                prompt=prompt, query_engine=query_engine
+                            )
+                            # Stream response and collect source nodes
+                            full_response = []
+                            response_container = st.empty()
+                            
+                            for chunk in response_stream:
+                                if isinstance(chunk, tuple) and len(chunk) == 2 and chunk[0] == "__SOURCES__":
+                                    # This is the source nodes marker
+                                    source_nodes = chunk[1] if chunk[1] else []
+                                else:
+                                    chunk_str = str(chunk)
+                                    full_response.append(chunk_str)
+                                    # Update display as we stream
+                                    response_container.markdown("".join(full_response))
+                            
+                            response_text = "".join(full_response)
                         
                         # Display source citations if available
                         if source_nodes:
@@ -154,7 +173,12 @@ def chatbox():
                                             st.text(snippet)
                                     except Exception as e:
                                         st.caption(f"**{i}.** Source {i} (error displaying: {str(e)})")
-                elif provider:
+                    else:
+                        # Query engine exists but model not configured
+                        response_text = "⚠️ No Ollama model configured. Please go to Settings → Ollama → Model and select a model to use document-based Q&A."
+                        st.warning(response_text)
+                        source_nodes = []  # No sources when model not configured
+                elif provider and model_configured:
                     # Use provider chat without context
                     model_name = provider.get_model_name()
                     provider_icons = {
@@ -181,6 +205,10 @@ def chatbox():
                             messages=messages_for_provider
                         )
                         response_text = st.write_stream(response_stream)
+                elif provider and not model_configured:
+                    # Provider exists but model not configured
+                    response_text = "⚠️ No Ollama model configured. Please go to Settings → Ollama → Model and select a model."
+                    st.warning(response_text)
                 else:
                     # No provider configured
                     response_text = "⚠️ Please configure a model provider in Settings to enable chat."

@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import struct
 
 import utils.logs as logs
 
@@ -19,11 +20,47 @@ def set_initial_state():
         # Get from environment variable first, then auto-detect Docker environment
         ollama_endpoint = os.getenv("OLLAMA_ENDPOINT")
         if not ollama_endpoint:
-            # Auto-detect Docker environment and use host.docker.internal if available
-            if os.path.exists("/.dockerenv") or os.getenv("DOCKER_CONTAINER"):
-                ollama_endpoint = "http://host.docker.internal:11434"
-            else:
-                ollama_endpoint = "http://localhost:11434"
+            # Check if using host network (no separate network namespace)
+            # In host network mode, localhost works directly
+            try:
+                # Check if we can access host's localhost directly
+                # If we're in host network mode, localhost should work
+                import socket
+                test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                test_sock.settimeout(0.1)
+                result = test_sock.connect_ex(('localhost', 11434))
+                test_sock.close()
+                if result == 0:
+                    # Port is accessible, likely host network mode
+                    ollama_endpoint = "http://localhost:11434"
+                else:
+                    # Not accessible, check if we're in Docker
+                    if os.path.exists("/.dockerenv") or os.getenv("DOCKER_CONTAINER"):
+                        # Try host.docker.internal first (works with --add-host flag)
+                        ollama_endpoint = "http://host.docker.internal:11434"
+                        # Alternative: Try to detect gateway IP
+                        try:
+                            # Get default gateway (usually 172.17.0.1)
+                            gateway_ip = None
+                            with open('/proc/net/route') as f:
+                                for line in f:
+                                    fields = line.strip().split()
+                                    if fields[1] == '00000000':  # Default route
+                                        gateway_ip = socket.inet_ntoa(struct.pack('<L', int(fields[2], 16)))
+                                        break
+                            if gateway_ip:
+                                # Store as alternative endpoint
+                                st.session_state["ollama_endpoint_alt"] = f"http://{gateway_ip}:11434"
+                        except Exception:
+                            pass
+                    else:
+                        ollama_endpoint = "http://localhost:11434"
+            except Exception:
+                # Fallback: assume localhost if not in Docker, otherwise host.docker.internal
+                if os.path.exists("/.dockerenv") or os.getenv("DOCKER_CONTAINER"):
+                    ollama_endpoint = "http://host.docker.internal:11434"
+                else:
+                    ollama_endpoint = "http://localhost:11434"
         st.session_state["ollama_endpoint"] = ollama_endpoint
 
     if "ollama_timeout" not in st.session_state:
@@ -46,17 +83,53 @@ def set_initial_state():
         try:
             models = st.session_state.get("ollama_models", [])
             if models and len(models) > 0:
+                # Prefer llama3:8b, then llama2:7b, then first available
                 if "llama3:8b" in models:
-                    st.session_state["selected_model"] = "llama3:8b"  # Default to llama3:8b on initial load
+                    st.session_state["selected_model"] = "llama3:8b"
+                    logs.log.info("Auto-selected default model: llama3:8b")
                 elif "llama2:7b" in models:
-                    st.session_state["selected_model"] = "llama2:7b"  # Default to llama2:7b on initial load
+                    st.session_state["selected_model"] = "llama2:7b"
+                    logs.log.info("Auto-selected default model: llama2:7b")
                 else:
-                    st.session_state["selected_model"] = models[0]  # If llama2:7b is not present, select the first model available
+                    st.session_state["selected_model"] = models[0]
+                    logs.log.info(f"Auto-selected first available model: {models[0]}")
             else:
-                st.session_state["selected_model"] = None
+                # No models available - try to set a default manual model
+                # Check if we can connect to Ollama and use a common default
+                default_manual_model = os.getenv("OLLAMA_DEFAULT_MODEL", "llama3:8b")
+                st.session_state["selected_model"] = default_manual_model
+                logs.log.info(f"No models fetched, using default manual model: {default_manual_model}")
         except Exception as e:
             logs.log.warning(f"Failed to set default model: {e}")
-            st.session_state["selected_model"] = None
+            # Set a default manual model as fallback
+            default_manual_model = os.getenv("OLLAMA_DEFAULT_MODEL", "llama3:8b")
+            st.session_state["selected_model"] = default_manual_model
+            logs.log.info(f"Using fallback default manual model: {default_manual_model}")
+    else:
+        # Re-check and auto-select if model is None but models are available
+        current_model = st.session_state.get("selected_model")
+        models = st.session_state.get("ollama_models", [])
+        if (not current_model or current_model == "None" or current_model is None):
+            if len(models) > 0:
+                # Models are available, select one
+                try:
+                    if "llama3:8b" in models:
+                        st.session_state["selected_model"] = "llama3:8b"
+                        logs.log.info("Auto-selected default model: llama3:8b")
+                    elif "llama2:7b" in models:
+                        st.session_state["selected_model"] = "llama2:7b"
+                        logs.log.info("Auto-selected default model: llama2:7b")
+                    else:
+                        st.session_state["selected_model"] = models[0]
+                        logs.log.info(f"Auto-selected first available model: {models[0]}")
+                except Exception as e:
+                    logs.log.warning(f"Failed to auto-select model: {e}")
+            else:
+                # No models available, use default manual model
+                default_manual_model = os.getenv("OLLAMA_DEFAULT_MODEL", "llama3:8b")
+                if not current_model or current_model == "None":
+                    st.session_state["selected_model"] = default_manual_model
+                    logs.log.info(f"No models available, using default manual model: {default_manual_model}")
 
     if "messages" not in st.session_state:
         st.session_state["messages"] = [

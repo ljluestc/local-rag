@@ -138,26 +138,110 @@ def settings():
             key="ollama_timeout",
             help="Increase if responses time out during generation.",
         )
-        st.selectbox(
-            "Model",
-            st.session_state["ollama_models"],
-            key="selected_model",
-            disabled= len(st.session_state["ollama_models"])==0,
-            placeholder= "Select Model" if len(st.session_state["ollama_models"])>0 else "No Models Available",
-        )
-        if len(st.session_state["ollama_models"]) == 0:
+        # Auto-select first model if none selected and models are available
+        models = st.session_state.get("ollama_models", [])
+        current_model = st.session_state.get("selected_model")
+        default_model = os.getenv("OLLAMA_DEFAULT_MODEL", "llama3:8b")
+        
+        # Handle manual model input when no models are available
+        if len(models) == 0:
+            # Get default model value - set BEFORE any widgets
+            if not current_model or current_model == "None" or current_model is None:
+                # Set default model before creating widgets
+                st.session_state["selected_model"] = default_model
+                current_model = default_model
+            
+            # Show manual model input
             manual_model = st.text_input(
                 "Model (manual)",
                 key="manual_model",
                 placeholder="llama3:8b",
+                value=current_model if current_model else default_model,
                 help="Enter a model name installed in Ollama, e.g. llama3:8b",
             )
+            
+            # Handle manual model changes using a callback approach
             if manual_model and manual_model.strip() != "":
-                st.session_state["selected_model"] = manual_model.strip()
-        st.button(
-            "Refresh",
-            on_click=ollama.get_models,
-        )
+                if manual_model.strip() != current_model:
+                    # Use rerun to update the model
+                    st.session_state["selected_model"] = manual_model.strip()
+                    st.rerun()
+                else:
+                    st.info(f"📝 Current model: {manual_model.strip()}")
+            elif current_model:
+                st.info(f"📝 Current model: {current_model}")
+        else:
+            # Models are available - use selectbox
+            # If no model selected but models are available, select the first one
+            if (not current_model or current_model == "None" or current_model is None) and len(models) > 0:
+                # Prefer llama3:8b, then llama2:7b, then first available
+                if "llama3:8b" in models:
+                    st.session_state["selected_model"] = "llama3:8b"
+                elif "llama2:7b" in models:
+                    st.session_state["selected_model"] = "llama2:7b"
+                else:
+                    st.session_state["selected_model"] = models[0]
+                current_model = st.session_state["selected_model"]
+            
+            # Find index of current model for selectbox
+            model_index = 0
+            if current_model and current_model in models:
+                model_index = models.index(current_model)
+            
+            st.selectbox(
+                "Model",
+                models,
+                key="selected_model",
+                index=model_index if len(models) > 0 else None,
+                disabled=len(models) == 0,
+                placeholder="Select Model" if len(models) > 0 else "No Models Available",
+            )
+        col1, col2 = st.columns(2)
+        with col1:
+            st.button(
+                "Refresh",
+                on_click=ollama.get_models,
+            )
+        with col2:
+            if st.button("Test Connection", help="Test connection to Ollama endpoint"):
+                endpoint = st.session_state.get("ollama_endpoint", "http://localhost:11434")
+                try:
+                    import requests
+                    test_url = f"{endpoint}/api/tags"
+                    response = requests.get(test_url, timeout=5)
+                    if response.status_code == 200:
+                        st.success(f"✅ Connected to Ollama at {endpoint}")
+                        models_data = response.json()
+                        if models_data.get("models"):
+                            st.info(f"Found {len(models_data['models'])} model(s)")
+                        else:
+                            st.warning("Connected but no models found. Install models with: `ollama pull llama3:8b`")
+                    else:
+                        st.error(f"❌ Connection failed: HTTP {response.status_code}")
+                except requests.exceptions.ConnectionError:
+                    # Try alternative endpoints if in Docker
+                    alt_endpoint = st.session_state.get("ollama_endpoint_alt")
+                    if alt_endpoint:
+                        st.warning(f"⚠️ Primary endpoint failed. Trying alternative: {alt_endpoint}")
+                        try:
+                            alt_url = f"{alt_endpoint}/api/tags"
+                            alt_response = requests.get(alt_url, timeout=5)
+                            if alt_response.status_code == 200:
+                                st.success(f"✅ Connected using alternative endpoint: {alt_endpoint}")
+                                st.info(f"💡 Update your endpoint to: {alt_endpoint}")
+                                models_data = alt_response.json()
+                                if models_data.get("models"):
+                                    st.info(f"Found {len(models_data['models'])} model(s)")
+                            else:
+                                st.error(f"❌ Alternative endpoint also failed: HTTP {alt_response.status_code}")
+                        except Exception:
+                            pass
+                    
+                    st.error(f"❌ Cannot connect to Ollama at {endpoint}. Please check:\n1. Ollama is running: `ollama serve`\n2. Endpoint is correct\n3. If in Docker, try:\n   - Gateway IP: `http://172.17.0.1:11434`\n   - Host network: Run with `--network host`\n   - Host IP: Find with `ip route show default | awk '/default/ {{print $3}}'`")
+                except requests.exceptions.Timeout:
+                    st.error(f"❌ Connection timeout to {endpoint}. Ollama may be slow to respond.")
+                except Exception as e:
+                    st.error(f"❌ Connection test failed: {str(e)}")
         reset_chat = st.button(
             "Reset Chat",
             help="Clear chat history and restart the conversation",
